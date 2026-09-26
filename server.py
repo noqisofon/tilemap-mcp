@@ -8,6 +8,7 @@ from __future__ import annotations
 import functools
 import io
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -44,6 +45,20 @@ _project: Project = Project.load(PROJECT_FILE) if PROJECT_FILE.exists() else Pro
 
 def _save() -> None:
     _project.save(PROJECT_FILE)
+
+
+# letters (incl. Japanese), digits, _ - . and spaces; no path separators, no leading dot, no ".."
+_SAFE_NAME = re.compile(r"[\w\-. ]+")
+
+
+def _safe_name(name: str, what: str = "name") -> str:
+    """Names from the agent become file names: refuse anything that could leave the data dir."""
+    if not _SAFE_NAME.fullmatch(name) or name.startswith(".") or ".." in name:
+        raise TilemapError(
+            f"invalid {what} {name!r}: use letters, digits, '_', '-', '.' or spaces only "
+            f"(no slashes, no '..', no leading '.')"
+        )
+    return name
 
 
 def _summary() -> str:
@@ -86,7 +101,7 @@ def new_project(tile_size: int = 16) -> str:
 def save_project_as(name: str) -> str:
     """Save the current project to a named file under projects/ (e.g. 'level_1', 'town')."""
     PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
-    target = PROJECTS_DIR / f"{name}.json"
+    target = PROJECTS_DIR / f"{_safe_name(name, 'project name')}.json"
     _project.save(target)
     return f"saved project as {name!r} to {target}"
 
@@ -96,7 +111,7 @@ def save_project_as(name: str) -> str:
 def load_project(name: str) -> str:
     """Load a named project from projects/."""
     global _project
-    target = PROJECTS_DIR / f"{name}.json"
+    target = PROJECTS_DIR / f"{_safe_name(name, 'project name')}.json"
     if not target.exists():
         raise TilemapError(f"project {name!r} not found in {PROJECTS_DIR}")
     _project = Project.load(target)
@@ -123,6 +138,7 @@ def define_tile(
     rows: list[str],
     solid: Optional[bool] = None,
     tags: Optional[list[str]] = None,
+    meta: Optional[dict] = None,
 ) -> str:
     """Define (or redefine) a tile from text pixel art.
 
@@ -130,8 +146,9 @@ def define_tile(
     rows: exactly tile_size strings, each exactly tile_size chars. '.' or ' ' = transparent.
     solid: optional collision flag (True = impassable wall/obstacle).
     tags: optional semantic tags e.g. ["wall", "metal", "interactable"].
+    meta: optional free-form properties exported to atlas.json (e.g. {"damage": 3}).
     """
-    _project.define_tile(name, palette, rows, solid=solid, tags=tags)
+    _project.define_tile(name, palette, rows, solid=solid, tags=tags, meta=meta)
     _save()
     return f"defined {name!r}. tiles now: {sorted(_project.tiles)}"
 
@@ -306,9 +323,12 @@ def carve_corridor(
     floor_layer: str = "ground",
     clear_layer: Optional[str] = "objects",
 ) -> str:
-    """Dig an L-shaped corridor connecting (x1, y1) to (x2, y2).
+    """Dig an L-shaped corridor: horizontal from (x1, y1) to (x2, y1), then vertical to (x2, y2).
 
-    Lays floor tiles, clears obstacle layers, and automatically outlines with wall tiles.
+    (x, y) is the top-left of a width x width brush dragged along the path, so a corridor of
+    width 2 ending at (18, 5) occupies x 18-19 and y 5-6 at its end. Lays floor tiles, clears
+    the obstacle layer, and puts a 1-tile wall on every empty cell touching the corridor
+    (existing tiles are never overwritten).
     """
     _project.carve_corridor(
         x1, y1, x2, y2,
@@ -437,8 +457,10 @@ def render_animation(
         raise ValueError("frames list cannot be empty")
     imgs = _project.render_animation(frames, scale=scale)
 
+    if not gif_name.lower().endswith(".gif"):
+        gif_name += ".gif"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    out_file = DATA_DIR / gif_name
+    out_file = DATA_DIR / _safe_name(gif_name, "gif_name")
     imgs[0].save(
         out_file,
         save_all=True,

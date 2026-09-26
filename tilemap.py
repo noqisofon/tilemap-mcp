@@ -361,9 +361,12 @@ class Project:
         floor_layer: str = "ground",
         clear_layer: Optional[str] = "objects",
     ) -> None:
-        """Carve an L-shaped corridor between (x1,y1) and (x2,y2).
+        """Carve an L-shaped corridor: horizontal from (x1,y1) to (x2,y1), then vertical to (x2,y2).
 
-        Lays floor tiles, clears obstacle layers, and borders the corridor with wall tiles.
+        (x, y) is the top-left cell of a width x width brush that is dragged along the path, so a
+        straight corridor ends in a clean width x width block. Lays floor tiles, clears the
+        obstacle layer, and puts wall tiles on every still-empty floor-layer cell touching the
+        corridor (existing tiles, e.g. a room's own walls, are never overwritten).
         """
         self._check_xy(x1, y1)
         self._check_xy(x2, y2)
@@ -372,17 +375,20 @@ class Project:
 
         corridor_cells: set[tuple[int, int]] = set()
 
+        def stamp(bx: int, by: int) -> None:
+            for dy in range(width):
+                for dx in range(width):
+                    corridor_cells.add((bx + dx, by + dy))
+
         # Horizontal leg from x1 to x2 at y1
         step_x = 1 if x2 >= x1 else -1
         for x in range(x1, x2 + step_x, step_x):
-            for w in range(width):
-                corridor_cells.add((x, y1 + w))
+            stamp(x, y1)
 
         # Vertical leg from y1 to y2 at x2
         step_y = 1 if y2 >= y1 else -1
         for y in range(y1, y2 + step_y, step_y):
-            for w in range(width):
-                corridor_cells.add((x2 + w, y))
+            stamp(x2, y)
 
         # Place floor and clear obstacle layer
         for cx, cy in corridor_cells:
@@ -394,22 +400,20 @@ class Project:
                     except TilemapError:
                         pass
 
-        # Border with walls
+        # Border with walls: every empty cell 8-adjacent to the corridor
         if wall_tile:
             fl = self._layer(floor_layer)
             for cx, cy in corridor_cells:
-                for dy in range(-1, width + 1):
-                    for dx in (-1, width):
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
                         wx, wy = cx + dx, cy + dy
-                        if 0 <= wx < self.width and 0 <= wy < self.height:
-                            if (wx, wy) not in corridor_cells and fl["grid"][wy][wx] is None:
-                                self.place(floor_layer, wx, wy, wall_tile)
-                for dy in (-1, width):
-                    for dx in range(-1, width + 1):
-                        wx, wy = cx + dx, cy + dy
-                        if 0 <= wx < self.width and 0 <= wy < self.height:
-                            if (wx, wy) not in corridor_cells and fl["grid"][wy][wx] is None:
-                                self.place(floor_layer, wx, wy, wall_tile)
+                        if (
+                            0 <= wx < self.width
+                            and 0 <= wy < self.height
+                            and (wx, wy) not in corridor_cells
+                            and fl["grid"][wy][wx] is None
+                        ):
+                            self.place(floor_layer, wx, wy, wall_tile)
 
     def save_prefab(
         self, name: str, x: int, y: int, w: int, h: int, layers: Optional[list[str]] = None
