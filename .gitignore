@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+tilemap_data/
+demo_out/
+mcp_out/
+.venv/
