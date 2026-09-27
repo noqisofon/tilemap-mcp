@@ -1,8 +1,14 @@
 """Rebuild the attached room directly through the core library."""
 from pathlib import Path
 
-from sprites import (GROUND_ASCII, GROUND_LEGEND, OBJECTS_ASCII, OBJECTS_LEGEND, SPRITES)
-from tilemap import Project
+from tilemap_mcp.sprites import (
+    GROUND_ASCII,
+    GROUND_LEGEND,
+    OBJECTS_ASCII,
+    OBJECTS_LEGEND,
+    SPRITES,
+)
+from tilemap_mcp.tilemap import Project
 
 out = Path("demo_out")
 out.mkdir(exist_ok=True)

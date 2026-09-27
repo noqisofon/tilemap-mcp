@@ -18,9 +18,9 @@ uv sync
 pip install -r requirements.txt
 
 # 動作検証
-python test_core.py  # コアロジック・回帰テスト (7件)
-python test_mcp.py   # MCP stdio 経由で全27ツールの統合テスト
-python demo.py       # demo_out/ に部屋とスプライトを描画
+python tests/tilemap_mcp/test_core.py  # コアロジック・回帰テスト (7件)
+python tests/tilemap_mcp/test_mcp.py   # MCP stdio 経由で全27ツールの統合テスト
+python -m tilemap_mcp.demo             # demo_out/ に部屋とスプライトを描画
 ```
 
 ## MCP 設定例
@@ -34,9 +34,9 @@ pip install .
 claude mcp add tilemap -e TILEMAP_DIR=./tilemap_data -- tilemap-mcp
 ```
 
-### 直接スクリプト指定（リポジトリのまま使う場合）
+### リポジトリのまま使う場合
 ```bash
-claude mcp add tilemap -e TILEMAP_DIR=./tilemap_data -- python C:\Users\nedri\Projects\tilemap-mcp\server.py
+claude mcp add tilemap -e TILEMAP_DIR=./tilemap_data -e PYTHONPATH=src -- python -m tilemap_mcp
 ```
 
 ### Antigravity / Cline / Cursor 等 (mcp.json)
@@ -45,9 +45,10 @@ claude mcp add tilemap -e TILEMAP_DIR=./tilemap_data -- python C:\Users\nedri\Pr
   "mcpServers": {
     "tilemap": {
       "command": "python",
-      "args": ["C:/Users/nedri/Projects/tilemap-mcp/server.py"],
+      "args": ["-m", "tilemap_mcp"],
       "env": {
-        "TILEMAP_DIR": "./tilemap_data"
+        "TILEMAP_DIR": "./tilemap_data",
+        "PYTHONPATH": "src"
       }
     }
   }

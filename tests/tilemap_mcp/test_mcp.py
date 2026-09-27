@@ -1,14 +1,19 @@
-"""Drive server.py over real MCP stdio, like an agent would, and check the results."""
+"""Drive tilemap_mcp over real MCP stdio, like an agent would, and check the results."""
 import asyncio
 import base64
 import os
 import sys
 from pathlib import Path
 
+# Ensure src/ is on sys.path
+SRC = Path(__file__).resolve().parent.parent.parent / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from sprites import (GROUND_ASCII, GROUND_LEGEND, OBJECTS_ASCII, OBJECTS_LEGEND, SPRITES)
+from tilemap_mcp.sprites import (GROUND_ASCII, GROUND_LEGEND, OBJECTS_ASCII, OBJECTS_LEGEND, SPRITES)
 
 DATA = Path("mcp_out").resolve()
 
@@ -18,9 +23,15 @@ async def call(s, tool, **args):
 
 
 async def main():
+    env = {**os.environ, "TILEMAP_DIR": str(DATA)}
+    # Add SRC to PYTHONPATH so python -m tilemap_mcp finds the package
+    pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(SRC) + (os.pathsep + pythonpath if pythonpath else "")
+
     params = StdioServerParameters(
-        command=sys.executable, args=["server.py"],
-        env={**os.environ, "TILEMAP_DIR": str(DATA)},
+        command=sys.executable,
+        args=["-m", "tilemap_mcp"],
+        env=env,
     )
     async with stdio_client(params) as (rd, wr):
         async with ClientSession(rd, wr) as s:
@@ -131,4 +142,5 @@ async def main():
     print("files:", sorted(p.name for p in DATA.iterdir()))
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

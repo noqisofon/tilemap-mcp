@@ -1,12 +1,19 @@
-"""Core regression tests (no MCP needed for most): python test_core.py"""
+"""Core regression tests (no MCP needed for most): python -m tests.tilemap_mcp.test_core"""
 import os
+import sys
 import tempfile
 from pathlib import Path
 
+# Ensure src/ is on sys.path when running directly
+SRC = Path(__file__).resolve().parent.parent.parent / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
 os.environ.setdefault("TILEMAP_DIR", str(Path(tempfile.mkdtemp(prefix="tilemap_test_")) / "data"))
 
-from tilemap import Project, TilemapError
-from sprites import SPRITES
+from tilemap_mcp import server
+from tilemap_mcp.sprites import SPRITES
+from tilemap_mcp.tilemap import Project, TilemapError
 
 
 def project(w=24, h=16) -> Project:
@@ -82,8 +89,6 @@ def test_import_roundtrip():
 
 
 def test_safe_names():
-    import server
-
     for bad in ("../x", "..\\x", "a/b", ".hidden", "", "x..y", "C:evil"):
         try:
             server._safe_name(bad)
