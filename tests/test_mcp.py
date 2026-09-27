@@ -1,13 +1,16 @@
-"""Drive tilemap_mcp over real MCP stdio, like an agent would, and check the results."""
+"""Drive tilemap_mcp over real MCP stdio, like an agent would: python tests/test_mcp.py   (or: uv run pytest)"""
 import asyncio
 import base64
+import atexit
 import json
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 # Ensure src/ is on sys.path
-SRC = Path(__file__).resolve().parent.parent.parent / "src"
+SRC = Path(__file__).resolve().parent.parent / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
@@ -16,7 +19,11 @@ from mcp.client.stdio import stdio_client
 
 from tilemap_mcp.sprites import (GROUND_ASCII, GROUND_LEGEND, OBJECTS_ASCII, OBJECTS_LEGEND, SPRITES)
 
-DATA = Path("mcp_out").resolve()
+WORK = Path(tempfile.mkdtemp(prefix="tilemap_mcp_test_"))
+DATA = WORK / "mcp_out"
+# removed when the run ends; set TILEMAP_TEST_KEEP=1 to keep it (renders, atlas and GIF are in it)
+if not os.environ.get("TILEMAP_TEST_KEEP"):
+    atexit.register(shutil.rmtree, WORK, ignore_errors=True)
 
 
 async def call(s, tool, **args):
@@ -184,6 +191,11 @@ async def main():
             assert f"data_dir={DATA}" in r.content[0].text, r.content[0].text
             print("named outputs OK")
     print("files:", sorted(p.name for p in DATA.iterdir()))
+
+
+def test_over_mcp_stdio():
+    """pytest entry point: the same run as `python tests/test_mcp.py`."""
+    asyncio.run(main())
 
 
 if __name__ == "__main__":

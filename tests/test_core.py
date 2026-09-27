@@ -1,15 +1,20 @@
-"""Core regression tests (no MCP needed for most): python -m tests.tilemap_mcp.test_core"""
+"""Core regression tests: python tests/test_core.py   (or: uv run pytest)"""
+import atexit
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 # Ensure src/ is on sys.path when running directly
-SRC = Path(__file__).resolve().parent.parent.parent / "src"
+SRC = Path(__file__).resolve().parent.parent / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-os.environ.setdefault("TILEMAP_DIR", str(Path(tempfile.mkdtemp(prefix="tilemap_test_")) / "data"))
+# everything the tests create lives under one temp folder that is removed when the run ends
+_TMP = Path(tempfile.mkdtemp(prefix="tilemap_test_"))
+atexit.register(shutil.rmtree, _TMP, ignore_errors=True)
+os.environ.setdefault("TILEMAP_DIR", str(_TMP / "data"))
 
 from tilemap_mcp import server
 from tilemap_mcp.sprites import SPRITES
@@ -89,7 +94,8 @@ def test_import_roundtrip():
 
 
 def test_safe_names():
-    for bad in ("../x", "..\\x", "a/b", ".hidden", "", "x..y", "C:evil"):
+    for bad in ("../x", "..\\x", "a/b", ".hidden", "", "x..y", "C:evil",
+                "CON", "nul", "Com1", "LPT9", "AUX.txt", "prn.v2", "sheet ", " sheet", "sheet.", "a" * 101):
         try:
             server._safe_name(bad)
         except TilemapError:
@@ -141,7 +147,7 @@ def test_tiled_export_rebuilds_same_picture():
     p.border("ground", 0, 0, 12, 9, "brick")
     p.place("objects", 3, 4, "slime")
     p.place("objects", 8, 2, "sword")
-    out = Path(tempfile.mkdtemp(prefix="tiled_")) / "out"
+    out = Path(tempfile.mkdtemp(dir=_TMP)) / "out"
     p.export_atlas(out, columns=4)
     tm = json.loads((out / "tiled_map.json").read_text())
     ts = tm["tilesets"][0]
@@ -337,7 +343,7 @@ def test_startup_reports_data_dir():
                 os.environ["TILEMAP_DIR"] = old
         return buf.getvalue()
 
-    absolute = str(Path(tempfile.mkdtemp(prefix="tilemap_abs_")))
+    absolute = str(Path(tempfile.mkdtemp(dir=_TMP)))
     out = run_main(absolute)
     assert "data dir:" in out and "warning" not in out and "not set" not in out, out
     out = run_main("./tilemap_data")
@@ -374,7 +380,8 @@ def test_named_outputs_stay_inside_data_dir():
 
         # names cannot escape (checked before anything is written)
         before = {p for p in data.parent.rglob("*")}
-        for bad in ("../x", "..\\x", "a/b", "/etc/passwd", "C:\\x", ".hidden", "", "x..y"):
+        for bad in ("../x", "..\\x", "a/b", "/etc/passwd", "C:\\x", ".hidden", "", "x..y",
+                    "CON", "nul", "COM1", "sheet.", "sheet ", "a" * 101):
             for call in (lambda n=bad: server.render(scale=1, name=n), lambda n=bad: server.export_atlas(name=n)):
                 try:
                     call()

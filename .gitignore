@@ -4,3 +4,4 @@ tilemap_data/
 demo_out/
 mcp_out/
 .venv/
+.pytest_cache/

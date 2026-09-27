@@ -70,14 +70,27 @@ def _open_image(file_path: str) -> PILImage.Image:
 
 # letters (incl. Japanese), digits, _ - . and spaces; no path separators, no leading dot, no ".."
 _SAFE_NAME = re.compile(r"[\w\-. ]+")
+# names Windows reserves for devices (with or without an extension: "CON", "con.png", "COM1.txt")
+_WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+_MAX_NAME = 100
 
 
 def _safe_name(name: str, what: str = "name") -> str:
-    """Names from the agent become file names: refuse anything that could leave the data dir."""
-    if not _SAFE_NAME.fullmatch(name) or name.startswith(".") or ".." in name:
+    """Names from the agent become file / folder names: refuse anything that could leave the data dir or
+    that Windows cannot store as given (device names, trailing dot / space, very long names)."""
+    if (
+        not _SAFE_NAME.fullmatch(name)
+        or name.startswith(".")
+        or ".." in name
+        or name != name.strip()
+        or name.endswith(".")
+        or len(name) > _MAX_NAME
+        or name.split(".")[0].strip().upper() in _WINDOWS_RESERVED
+    ):
         raise TilemapError(
-            f"invalid {what} {name!r}: use letters, digits, '_', '-', '.' or spaces only "
-            f"(no slashes, no '..', no leading '.')"
+            f"invalid {what} {name!r}: use letters, digits, '_', '-', '.' or spaces only, at most {_MAX_NAME} "
+            f"characters; no slashes, no '..', no leading '.', no trailing space or '.', "
+            f"and not a Windows device name such as CON, NUL, COM1 or LPT1"
         )
     return name
 

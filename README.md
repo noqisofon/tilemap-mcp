@@ -27,8 +27,9 @@ pip install -e .
 
 ```bash
 python -m tilemap_mcp.demo             # demo_out/room.png に部屋を描画
-python tests/tilemap_mcp/test_core.py  # コアロジックの回帰テスト
-python tests/tilemap_mcp/test_mcp.py   # MCP の stdio 経由で全ツールを呼ぶ統合テスト
+python tests/test_core.py  # コアロジックの回帰テスト
+python tests/test_mcp.py   # MCP の stdio 経由で全ツールを呼ぶ統合テスト
+uv run pytest              # 上の 2 つをまとめて実行（pytest は開発用の依存として入ります）
 ```
 
 ## MCP に登録する
@@ -106,6 +107,7 @@ macOS / Linux では `command` を `/path/to/tilemap-mcp/.venv/bin/python` に�
 | 出力したファイルが見つからない             | `list_tiles` の `data_dir` を確認します。ログに「relative path」の警告が出ていたら、`TILEMAP_DIR` を絶対パスにします。                                                                                                                                     |
 | 前回の続きから始まる                       | 起動時に `data_dir` の `project.json` を読み込みます。まっさらから始めるときは `new_project` を呼びます（別名で残したいときは先に `save_project_as`）。                                                                                                    |
 | 初回の起動が遅い（`uv` の場合）            | 初回は依存パッケージの取得に時間がかかることがあります。先にターミナルで `uv sync` しておくと安全です。                                                                                                                                                    |
+| 追加・更新したはずのツールが呼べない（`Unknown tool: ...`） | クライアントは、セッション開始時に MCP サーバーのツール一覧を取得して保存します。サーバーを更新（`git pull` や再インストール）したあとは、クライアントを再起動するか、新しいチャットを始めてください（ツール一覧が取り直されます）。 |
 
 ## 利用可能なツール一覧
 
