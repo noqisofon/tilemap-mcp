@@ -1,5 +1,10 @@
-"""Rebuild the attached room directly through the core library."""
+import sys
 from pathlib import Path
+
+# Fallback for running directly as a script without pip install -e .
+SRC = Path(__file__).resolve().parent.parent
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 from tilemap_mcp.sprites import (
     GROUND_ASCII,

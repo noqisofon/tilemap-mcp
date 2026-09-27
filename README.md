@@ -16,6 +16,7 @@ AI エージェントが「タイル名 + 座標」でドット絵のマップ�
 uv sync
 # または
 pip install -r requirements.txt
+pip install -e .  # 開発用インストール（推奨）
 
 # 動作検証
 python tests/tilemap_mcp/test_core.py  # コアロジック・回帰テスト (7件)
