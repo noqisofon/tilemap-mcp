@@ -645,6 +645,8 @@ class Project:
             "tilewidth": n,
             "tileheight": n,
             "infinite": False,
+            "nextlayerid": len(tiled_layers) + 1,  # Tiled always writes these two; strict
+            "nextobjectid": 1,                     # parsers (e.g. pytiled-parser) require them
             "orientation": "orthogonal",
             "renderorder": "right-down",
             "tiledversion": "1.10.0",

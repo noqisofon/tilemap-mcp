@@ -124,6 +124,41 @@ def test_tiled_json_export():
     # Check properties in tileset
     brick_tile = next(t for t in tiled["tilesets"][0]["tiles"] if t["type"] == "brick")
     assert any(prop["name"] == "solid" and prop["value"] is True for prop in brick_tile["properties"])
+    # keys that Tiled itself always writes (strict readers need them)
+    assert tiled["nextlayerid"] == len(tiled["layers"]) + 1
+    assert tiled["nextobjectid"] == 1
+
+
+def test_tiled_export_rebuilds_same_picture():
+    """atlas.png + tiled_map.json alone must be enough to redraw exactly what render() draws."""
+    import json
+    import tempfile
+
+    from PIL import Image, ImageChops
+
+    p = project(12, 9)
+    p.fill("ground", 0, 0, 12, 9, "stone")
+    p.border("ground", 0, 0, 12, 9, "brick")
+    p.place("objects", 3, 4, "slime")
+    p.place("objects", 8, 2, "sword")
+    out = Path(tempfile.mkdtemp(prefix="tiled_")) / "out"
+    p.export_atlas(out, columns=4)
+    tm = json.loads((out / "tiled_map.json").read_text())
+    ts = tm["tilesets"][0]
+    atlas = Image.open(out / ts["image"]).convert("RGBA")
+    assert atlas.size == (ts["imagewidth"], ts["imageheight"])
+    n = tm["tilewidth"]
+    canvas = Image.new("RGBA", (tm["width"] * n, tm["height"] * n), (0, 0, 0, 255))
+    for layer in tm["layers"]:
+        for i, gid in enumerate(layer["data"]):
+            if gid == 0:
+                continue
+            idx = gid - ts["firstgid"]
+            sx, sy = (idx % ts["columns"]) * n, (idx // ts["columns"]) * n
+            canvas.alpha_composite(
+                atlas.crop((sx, sy, sx + n, sy + n)), ((i % tm["width"]) * n, (i // tm["width"]) * n)
+            )
+    assert ImageChops.difference(canvas, p.render(scale=1)).getbbox() is None
 
 
 if __name__ == "__main__":
