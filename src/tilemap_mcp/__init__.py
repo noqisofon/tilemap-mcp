@@ -1,14 +1,5 @@
-import sys
-from pathlib import Path
+"""tilemap-mcp: AI-assisted tile and pixel art map building MCP server."""
+from tilemap_mcp.server import main, mcp
+from tilemap_mcp.tilemap import Project, TilemapError
 
-
-def main() -> None:
-    root = Path(__file__).resolve().parent.parent.parent
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-    from server import mcp
-    mcp.run()
-
-
-if __name__ == "__main__":
-    main()
+__all__ = ["Project", "TilemapError", "main", "mcp"]

@@ -9,6 +9,8 @@ AI エージェントが「タイル名 + 座標」でドット絵のマップ�
 
 ## セットアップ
 
+`mcp>=1.0` (mcp 1.x FastMCP / mcp 2.x MCPServer の両方) に対応しています。
+
 ```bash
 # 依存関係インストール (uv または pip)
 uv sync
@@ -16,13 +18,23 @@ uv sync
 pip install -r requirements.txt
 
 # 動作検証
-python demo.py      # demo_out/ に部屋を描画
-python test_mcp.py  # stdio 経由で全ツール（拡張機能含む）を検証
+python test_core.py  # コアロジック・回帰テスト (7件)
+python test_mcp.py   # MCP stdio 経由で全27ツールの統合テスト
+python demo.py       # demo_out/ に部屋とスプライトを描画
 ```
 
 ## MCP 設定例
 
-### Claude Code
+### パッケージインストール（推奨）
+```bash
+pip install .
+```
+インストール後はコマンド名だけで登録できます：
+```bash
+claude mcp add tilemap -e TILEMAP_DIR=./tilemap_data -- tilemap-mcp
+```
+
+### 直接スクリプト指定（リポジトリのまま使う場合）
 ```bash
 claude mcp add tilemap -e TILEMAP_DIR=./tilemap_data -- python C:\Users\nedri\Projects\tilemap-mcp\server.py
 ```
