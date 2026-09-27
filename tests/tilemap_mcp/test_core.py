@@ -312,6 +312,43 @@ def test_slice_tileset_old_behaviour_unchanged():
     assert p.tile_image("s_0_1").getpixel((4, 4)) == (0, 255, 0, 255)
 
 
+def test_startup_reports_data_dir():
+    """Where data goes must be visible: warn on a relative / missing TILEMAP_DIR, stay quiet on an absolute one."""
+    import contextlib
+    import io
+
+    def run_main(env_value):
+        old = os.environ.get("TILEMAP_DIR")
+        real_run = server.mcp.run
+        server.mcp.run = lambda *a, **k: None          # do not actually serve
+        buf = io.StringIO()
+        try:
+            if env_value is None:
+                os.environ.pop("TILEMAP_DIR", None)
+            else:
+                os.environ["TILEMAP_DIR"] = env_value
+            with contextlib.redirect_stderr(buf):
+                server.main()
+        finally:
+            server.mcp.run = real_run
+            if old is None:
+                os.environ.pop("TILEMAP_DIR", None)
+            else:
+                os.environ["TILEMAP_DIR"] = old
+        return buf.getvalue()
+
+    absolute = str(Path(tempfile.mkdtemp(prefix="tilemap_abs_")))
+    out = run_main(absolute)
+    assert "data dir:" in out and "warning" not in out and "not set" not in out, out
+    out = run_main("./tilemap_data")
+    assert "relative path" in out and "Use an absolute path" in out, out
+    out = run_main(None)
+    assert "TILEMAP_DIR is not set" in out, out
+    # every project summary the agent sees names the folder, so it can tell the user
+    assert f"data_dir={server.DATA_DIR}" in server.list_tiles()
+    assert f"data_dir={server.DATA_DIR}" in server.new_project(16)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

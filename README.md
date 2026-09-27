@@ -9,56 +9,91 @@ AI エージェントが「タイル名 + 座標」でドット絵のマップ�
 
 ## セットアップ
 
-`mcp>=1.0` (mcp 1.x FastMCP / mcp 2.x MCPServer の両方) に対応しています。
+Python 3.10 以上。`mcp` は 1.x / 2.x のどちらでも動きます。
 
-以下の **いずれか 1 つ** の方法でセットアップします：
+### 1. インストール（どちらか 1 つ）
 
 ```bash
-# 方法 A: uv を使う場合 (推奨)
+# A: uv（推奨）— このリポジトリのフォルダで
 uv sync
 
-# 方法 B: pip を使う場合
+# B: pip — 仮想環境を作ってから
+python -m venv .venv
+.venv\Scripts\activate          # macOS / Linux: source .venv/bin/activate
 pip install -e .
 ```
 
+### 2. 動作確認（任意）
+
 ```bash
-# 動作検証
-python tests/tilemap_mcp/test_core.py  # コアロジック・回帰テスト (8件)
-python tests/tilemap_mcp/test_mcp.py   # MCP stdio 経由で全29ツールの統合テスト
-python -m tilemap_mcp.demo             # demo_out/ に部屋とスプライトを描画
+python -m tilemap_mcp.demo             # demo_out/room.png に部屋を描画
+python tests/tilemap_mcp/test_core.py  # コアロジックの回帰テスト
+python tests/tilemap_mcp/test_mcp.py   # MCP の stdio 経由で全ツールを呼ぶ統合テスト
 ```
 
-## MCP 設定例
+## MCP に登録する
 
-### パッケージインストール（推奨）
+### 先に決めること: 保存先 `TILEMAP_DIR`
+
+プロジェクトの JSON、`render.png`、アトラス、GIF はすべてここに出力されます。**絶対パスで指定してください。**
+
+相対パス（`./tilemap_data`）や未指定だと、「MCP クライアントがサーバーを起動したフォルダ」の下になります。起動場所はクライアントによって違うので、データがどこに出たか分からなくなります（この場合、起動時にログへ警告を出します）。
+
+### uv で登録（推奨）
+
+`--directory` にこのリポジトリを指定すると、クライアントがどのフォルダから起動しても動きます。
+
 ```bash
-pip install .
-```
-インストール後はコマンド名だけで登録できます：
-```bash
-claude mcp add tilemap -e TILEMAP_DIR=./tilemap_data -- tilemap-mcp
+claude mcp add tilemap -e TILEMAP_DIR=C:/Users/you/tilemap_data -- uv --directory C:/Users/you/Projects/tilemap-mcp run tilemap-mcp
 ```
 
-### リポジトリのまま使う場合
-```bash
-claude mcp add tilemap -e TILEMAP_DIR=./tilemap_data -e PYTHONPATH=src -- python -m tilemap_mcp
-```
+Antigravity / Cline / Cursor などの `mcp.json` 形式：
 
-### Antigravity / Cline / Cursor 等 (mcp.json)
 ```json
 {
   "mcpServers": {
     "tilemap": {
-      "command": "python",
-      "args": ["-m", "tilemap_mcp"],
-      "env": {
-        "TILEMAP_DIR": "./tilemap_data",
-        "PYTHONPATH": "src"
-      }
+      "command": "uv",
+      "args": ["--directory", "C:/Users/you/Projects/tilemap-mcp", "run", "tilemap-mcp"],
+      "env": { "TILEMAP_DIR": "C:/Users/you/tilemap_data" }
     }
   }
 }
 ```
+
+### pip（仮想環境）で登録
+
+`pip install -e .` 済みの**仮想環境の python を絶対パスで**指定します（この場合 `PYTHONPATH` は不要）。
+
+```json
+{
+  "mcpServers": {
+    "tilemap": {
+      "command": "C:/Users/you/Projects/tilemap-mcp/.venv/Scripts/python.exe",
+      "args": ["-m", "tilemap_mcp"],
+      "env": { "TILEMAP_DIR": "C:/Users/you/tilemap_data" }
+    }
+  }
+}
+```
+
+macOS / Linux では `command` を `/path/to/tilemap-mcp/.venv/bin/python` にします。
+
+パスの書き方: JSON の中では `\` を `\\` と重ねるか、`/` を使います。`C:/Users/...` は Windows でもそのまま通ります。
+
+### 動いているか確認する
+
+1. エージェントに「tilemap の `list_tiles` を呼んで」と頼みます。返答の末尾に `data_dir=...` が出れば、サーバーは起動していて、データの出力先もそこです。
+2. クライアントの MCP ログ（stderr）にも、起動時に `[tilemap-mcp] data dir: ...` が出ます。
+
+### 困ったとき
+
+| 症状 | 原因と対処 |
+|---|---|
+| `No module named tilemap_mcp` で起動しない | `command` が仮想環境の python ではないか、`pip install -e .` をしていません。`PYTHONPATH=src` のような相対パスは、クライアントがこのリポジトリ直下から起動しない限り効かないので使わないでください。上の uv か、仮想環境の python の絶対パスで登録します。 |
+| 出力したファイルが見つからない | `list_tiles` の `data_dir` を確認します。ログに「relative path」の警告が出ていたら、`TILEMAP_DIR` を絶対パスにします。 |
+| 前回の続きから始まる | 起動時に `data_dir` の `project.json` を読み込みます。まっさらから始めるときは `new_project` を呼びます（別名で残したいときは先に `save_project_as`）。 |
+| 初回の起動が遅い（`uv` の場合） | 初回は依存パッケージの取得に時間がかかることがあります。先にターミナルで `uv sync` しておくと安全です。 |
 
 ## 利用可能なツール一覧
 

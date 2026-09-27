@@ -10,6 +10,7 @@ import io
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -110,7 +111,7 @@ def new_project(tile_size: int = 16) -> str:
         raise TilemapError("tile_size must be 4..64")
     _project = Project(tile_size)
     _save()
-    return "new project. " + _summary()
+    return "new project. " + _summary() + f", data_dir={DATA_DIR}"
 
 
 @mcp.tool()
@@ -348,8 +349,9 @@ def preview_tile(name: str, scale: int = 16) -> Image:
 @mcp.tool()
 @_guard
 def list_tiles() -> str:
-    """Summarize the project: tile size, map size, layers, tile names, prefabs."""
-    return _summary()
+    """Summarize the project: tile size, map size, layers, tile names, prefabs, and the folder
+    where project.json / render.png / atlas files are written (data_dir)."""
+    return _summary() + f", data_dir={DATA_DIR}"
 
 
 # ==================== MAP CONSTRUCTION & EDITING ====================
@@ -589,6 +591,22 @@ def export_atlas(columns: int = 8) -> str:
 
 
 def main() -> None:
+    # stdout carries the MCP protocol, so diagnostics go to stderr (clients show it in their MCP logs)
+    raw = os.environ.get("TILEMAP_DIR")
+    print(f"[tilemap-mcp] data dir: {DATA_DIR}", file=sys.stderr, flush=True)
+    if raw is None:
+        print(
+            f"[tilemap-mcp] TILEMAP_DIR is not set, so data goes to ./tilemap_data under the folder "
+            f"this client started the server in ({Path.cwd()}). Set TILEMAP_DIR to an absolute path "
+            f"to keep it in one place.",
+            file=sys.stderr, flush=True,
+        )
+    elif not Path(raw).expanduser().is_absolute():
+        print(
+            f"[tilemap-mcp] warning: TILEMAP_DIR={raw!r} is a relative path, resolved against the "
+            f"folder this client started the server in ({Path.cwd()}). Use an absolute path.",
+            file=sys.stderr, flush=True,
+        )
     mcp.run()
 
 
