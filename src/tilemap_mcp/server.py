@@ -483,10 +483,11 @@ def render_animation(
 @mcp.tool()
 @_guard
 def export_atlas(columns: int = 8) -> str:
-    """Write atlas.png (grid sprite sheet) and atlas.json (name -> index/x/y/props) for game engines."""
+    """Write atlas.png (grid sprite sheet), atlas.json (tile props), and tiled_map.json (Tiled TMJ format)."""
     meta = _project.export_atlas(DATA_DIR, columns)
     _save()
-    return f"wrote {DATA_DIR / 'atlas.png'} and atlas.json ({len(meta['tiles'])} tiles with collision/props)"
+    tiled_note = " and tiled_map.json" if _project.width > 0 else ""
+    return f"wrote {DATA_DIR / 'atlas.png'}, atlas.json{tiled_note} ({len(meta['tiles'])} tiles with collision/props)"
 
 
 def main() -> None:

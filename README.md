@@ -11,15 +11,19 @@ AI エージェントが「タイル名 + 座標」でドット絵のマップ�
 
 `mcp>=1.0` (mcp 1.x FastMCP / mcp 2.x MCPServer の両方) に対応しています。
 
-```bash
-# 依存関係インストール (uv または pip)
-uv sync
-# または
-pip install -r requirements.txt
-pip install -e .  # 開発用インストール（推奨）
+以下の **いずれか 1 つ** の方法でセットアップします：
 
+```bash
+# 方法 A: uv を使う場合 (推奨)
+uv sync
+
+# 方法 B: pip を使う場合
+pip install -e .
+```
+
+```bash
 # 動作検証
-python tests/tilemap_mcp/test_core.py  # コアロジック・回帰テスト (7件)
+python tests/tilemap_mcp/test_core.py  # コアロジック・回帰テスト (8件)
 python tests/tilemap_mcp/test_mcp.py   # MCP stdio 経由で全27ツールの統合テスト
 python -m tilemap_mcp.demo             # demo_out/ に部屋とスプライトを描画
 ```
@@ -96,4 +100,4 @@ claude mcp add tilemap -e TILEMAP_DIR=./tilemap_data -e PYTHONPATH=src -- python
   - **`fog_of_war=True` と `light_sources` による視野・ダンジョンの暗闇表現**
   - `show_grid=True` で座標付きグリッドを描画
 - `render_animation(frames, scale=4, duration=200, gif_name='animation.gif')`: 各フレームのタイル変化を GIF アニメーションとして生成
-- `export_atlas(columns=8)`: 全タイルのスプライトシート（`atlas.png`）と、各タイルの座標・当たり判定情報（`atlas.json`）を出力
+- `export_atlas(columns=8)`: 全タイルのスプライトシート（`atlas.png`）、タイルのプロパティ（`atlas.json`）、および **Phaser / Bevy 等で直接読み込める Tiled Map Editor 形式（`tiled_map.json`）** を出力

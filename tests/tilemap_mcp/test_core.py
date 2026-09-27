@@ -109,6 +109,23 @@ def test_safe_names():
     assert not (server.DATA_DIR / "escaped.json").exists()
 
 
+def test_tiled_json_export():
+    p = project(10, 8)
+    p.set_tile_properties("brick", solid=True, tags=["wall"])
+    p.place("ground", 0, 0, "brick")
+    p.place("objects", 1, 1, "sword")
+    tiled = p.to_tiled_json()
+    assert tiled["width"] == 10
+    assert tiled["height"] == 8
+    assert tiled["tilewidth"] == 16
+    assert len(tiled["layers"]) == 2
+    assert tiled["layers"][0]["data"][0] > 0  # brick gid
+    assert tiled["layers"][0]["data"][1] == 0  # empty
+    # Check properties in tileset
+    brick_tile = next(t for t in tiled["tilesets"][0]["tiles"] if t["type"] == "brick")
+    assert any(prop["name"] == "solid" and prop["value"] is True for prop in brick_tile["properties"])
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

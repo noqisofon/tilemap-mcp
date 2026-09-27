@@ -580,7 +580,94 @@ class Project:
             meta["tiles"][name] = tile_entry
         atlas.save(out_dir / "atlas.png")
         (out_dir / "atlas.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False))
+        if self.width > 0 and self.height > 0:
+            tiled = self.to_tiled_json("atlas.png", cols)
+            (out_dir / "tiled_map.json").write_text(json.dumps(tiled, indent=2, ensure_ascii=False))
         return meta
+
+    def to_tiled_json(self, atlas_image_name: str = "atlas.png", columns: int = 8) -> dict:
+        """Generate Tiled Map Editor compatible JSON (TMJ / orthogonal tilemap).
+
+        Loads directly in game engines like Phaser, Bevy, Godot, Defold, etc.
+        """
+        names = sorted(self.tiles)
+        n = self.tile_size
+        cols = max(1, min(columns, len(names) or 1))
+        rows = -(-len(names) // cols) if names else 1
+        name_to_gid = {name: i + 1 for i, name in enumerate(names)}
+
+        tiles_meta = []
+        for i, name in enumerate(names):
+            props_dict = self.tiles[name].get("props", {})
+            tile_item: dict = {"id": i, "type": name}
+            if props_dict:
+                tiled_props = []
+                for pk, pv in props_dict.items():
+                    if isinstance(pv, bool):
+                        ptype = "bool"
+                    elif isinstance(pv, int):
+                        ptype = "int"
+                    elif isinstance(pv, float):
+                        ptype = "float"
+                    else:
+                        ptype = "string"
+                    tiled_props.append({
+                        "name": pk,
+                        "type": ptype,
+                        "value": json.dumps(pv, ensure_ascii=False) if isinstance(pv, (list, dict)) else pv,
+                    })
+                tile_item["properties"] = tiled_props
+            tiles_meta.append(tile_item)
+
+        tiled_layers = []
+        for idx, l in enumerate(self.layers):
+            data = []
+            for row in l["grid"]:
+                for t in row:
+                    data.append(name_to_gid.get(t, 0) if t else 0)
+            tiled_layers.append({
+                "id": idx + 1,
+                "name": l["name"],
+                "type": "tilelayer",
+                "visible": True,
+                "opacity": 1.0,
+                "x": 0,
+                "y": 0,
+                "width": self.width,
+                "height": self.height,
+                "data": data,
+            })
+
+        return {
+            "compressionlevel": -1,
+            "height": self.height,
+            "width": self.width,
+            "tilewidth": n,
+            "tileheight": n,
+            "infinite": False,
+            "orientation": "orthogonal",
+            "renderorder": "right-down",
+            "tiledversion": "1.10.0",
+            "type": "map",
+            "version": "1.10",
+            "tilesets": [
+                {
+                    "firstgid": 1,
+                    "name": "tiles",
+                    "tilewidth": n,
+                    "tileheight": n,
+                    "tilecount": len(names),
+                    "columns": cols,
+                    "image": atlas_image_name,
+                    "imagewidth": cols * n,
+                    "imageheight": rows * n,
+                    "margin": 0,
+                    "spacing": 0,
+                    "tiles": tiles_meta,
+                }
+            ],
+            "layers": tiled_layers,
+        }
 
     def render_animation(
         self,
