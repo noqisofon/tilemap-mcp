@@ -165,6 +165,24 @@ async def main():
             assert not is_err(r), r
             assert "u_2_3" in "".join(c.text for c in r.content), r
             print("import_tile_from_sheet / slice_tileset OK")
+
+            # Test 9: named outputs stay inside the data folder (over real MCP, not just direct calls)
+            await call(s, "create_map", width=3, height=2)
+            await call(s, "fill", layer="ground", x=0, y=0, w=3, h=2, tile="u_2_3")
+            r = await call(s, "render", scale=2, name="room_a")
+            assert not is_err(r), r
+            assert (DATA / "renders" / "room_a.png").is_file()
+            r = await call(s, "export_atlas", name="b1")
+            assert not is_err(r), r
+            for f in ("atlas.png", "atlas.json", "tiled_map.json"):
+                assert (DATA / "exports" / "b1" / f).is_file(), f
+            for tool, args in (("render", {"name": "../evil"}), ("export_atlas", {"name": "..\\evil"})):
+                bad = await call(s, tool, **args)
+                assert is_err(bad) and "invalid" in bad.content[0].text, (tool, bad)
+            assert not (DATA.parent / "evil.png").exists() and not (DATA / "evil.png").exists()
+            r = await call(s, "list_tiles")
+            assert f"data_dir={DATA}" in r.content[0].text, r.content[0].text
+            print("named outputs OK")
     print("files:", sorted(p.name for p in DATA.iterdir()))
 
 

@@ -42,7 +42,10 @@ mcp = FastMCP(
         "create_map -> set_map_from_ascii / place / fill / border / carve_corridor -> "
         "render (optionally with view_rect camera window or fog_of_war) -> export_atlas. "
         "Coordinates are 0-based (x=column, y=row) from the top-left. "
-        "Layers draw bottom to top with alpha, so put sprites on an upper layer over a floor tile."
+        "Layers draw bottom to top with alpha, so put sprites on an upper layer over a floor tile. "
+        f"Files are written only under the data folder {DATA_DIR} (project.json, render.png, atlas, GIFs); "
+        "you cannot choose another location, so to use results in a game project copy them from there. "
+        "Give render / export_atlas a `name` to keep results apart (renders/<name>.png, exports/<name>/)."
     ),
 )
 
@@ -504,9 +507,13 @@ def render(
     fog_of_war: bool = False,
     light_sources: Optional[list[dict]] = None,
     revealed_cells: Optional[list[list[int]]] = None,
+    name: Optional[str] = None,
 ) -> list:
     """Render the map to a PNG (nearest-neighbor upscaled) and return it as an image.
 
+    name: keep this picture instead of overwriting the last one. Saved as renders/<name>.png
+      inside the data folder (without name: render.png in the data folder, replaced each time).
+      Letters, digits, '_', '-', '.' and spaces only.
     view_rect: [x, y, w, h] in tiles to render a specific camera view rather than whole map.
     fog_of_war: darkens areas outside light_sources or revealed_cells (dungeon vision / fog).
     light_sources: list of {"x": int, "y": int, "radius": int}.
@@ -530,8 +537,11 @@ def render(
         revealed_cells=rc,  # type: ignore[arg-type]
     )
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    out_file = DATA_DIR / "render.png"
+    if name is None:
+        out_file = DATA_DIR / "render.png"
+    else:
+        out_file = DATA_DIR / "renders" / f"{_safe_name(name)}.png"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
     img.save(out_file)
 
     buf = io.BytesIO()
@@ -582,12 +592,22 @@ def render_animation(
 
 @mcp.tool()
 @_guard
-def export_atlas(columns: int = 8) -> str:
-    """Write atlas.png (grid sprite sheet), atlas.json (tile props), and tiled_map.json (Tiled TMJ format)."""
-    meta = _project.export_atlas(DATA_DIR, columns)
+def export_atlas(columns: int = 8, name: Optional[str] = None) -> str:
+    """Write atlas.png (grid sprite sheet), atlas.json (tile props), and tiled_map.json (Tiled TMJ format).
+
+    name: put the files in exports/<name>/ inside the data folder, so exports of different maps or
+      games do not overwrite each other (without name they go straight into the data folder).
+      Letters, digits, '_', '-', '.' and spaces only. The reply gives the full path to hand to a
+      game project (copy the files from there).
+    """
+    out_dir = DATA_DIR if name is None else DATA_DIR / "exports" / _safe_name(name)
+    meta = _project.export_atlas(out_dir, columns)
     _save()
     tiled_note = " and tiled_map.json" if _project.width > 0 else ""
-    return f"wrote {DATA_DIR / 'atlas.png'}, atlas.json{tiled_note} ({len(meta['tiles'])} tiles with collision/props)"
+    return (
+        f"wrote atlas.png, atlas.json{tiled_note} to {out_dir} "
+        f"({len(meta['tiles'])} tiles with collision/props)"
+    )
 
 
 def main() -> None:

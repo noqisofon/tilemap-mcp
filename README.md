@@ -37,6 +37,18 @@ python tests/tilemap_mcp/test_mcp.py   # MCP の stdio 経由で全ツールを�
 
 プロジェクトの JSON、`render.png`、アトラス、GIF はすべてここに出力されます。**絶対パスで指定してください。**
 
+エージェント（AI）が出力先を自由に指定することはできません。サーバーが書き込むのは、常にこのフォルダの中だけです（エージェントの勘違いや、読み込んだ内容に仕込まれた指示で、他の場所のファイルを上書きされないようにするためです）。ゲームのプロジェクトへ持っていくときは、エージェントがファイル操作で、このフォルダから必要なファイルをコピーします。保存先は、サーバーが接続時にエージェントへ伝える説明文にも入れてあります（クライアントによっては、モデルに渡らない場合があります）。
+
+```
+<TILEMAP_DIR>/
+  project.json              いまのプロジェクト（起動時に自動で読み込み）
+  projects/<名前>.json      save_project_as で名前をつけて保存したもの
+  render.png                name なしの render（毎回上書き）
+  renders/<name>.png        name つきの render（上書きされない）
+  atlas.png / atlas.json / tiled_map.json   name なしの export_atlas
+  exports/<name>/           name つきの export_atlas（マップやゲームごとに分けられる）
+```
+
 相対パス（`./tilemap_data`）や未指定だと、「MCP クライアントがサーバーを起動したフォルダ」の下になります。起動場所はクライアントによって違うので、データがどこに出たか分からなくなります（この場合、起動時にログへ警告を出します）。
 
 ### uv で登録（推奨）
@@ -135,9 +147,10 @@ macOS / Linux では `command` を `/path/to/tilemap-mcp/.venv/bin/python` に�
 - `stamp_prefab(name, x, y, ignore_empty=True)`: 保存したプレハブを指定座標に一括配置
 
 ### 5. レンダリング・エクスポート
-- `render(scale=4, layers=None, show_grid=False, view_rect=None, fog_of_war=False, light_sources=None)`:
+- `render(scale=4, layers=None, show_grid=False, view_rect=None, fog_of_war=False, light_sources=None, name=None)`:
   - マップ全体または **`view_rect=[x, y, w, h]` によるカメラ視野** を PNG 描画
   - **`fog_of_war=True` と `light_sources` による視野・ダンジョンの暗闇表現**
   - `show_grid=True` で座標付きグリッドを描画
+  - `name="room_a"` を渡すと `renders/room_a.png` に残る（渡さないと `render.png` を毎回上書き）
 - `render_animation(frames, scale=4, duration=200, gif_name='animation.gif')`: 各フレームのタイル変化を GIF アニメーションとして生成
-- `export_atlas(columns=8)`: 全タイルのスプライトシート（`atlas.png`）、タイルのプロパティ（`atlas.json`）、および **Phaser / Bevy 等で直接読み込める Tiled Map Editor 形式（`tiled_map.json`）** を出力
+- `export_atlas(columns=8, name=None)`: 全タイルのスプライトシート（`atlas.png`）、タイルのプロパティ（`atlas.json`）、および **Phaser / Bevy 等で直接読み込める Tiled Map Editor 形式（`tiled_map.json`）** を出力。`name="dungeon_b1"` を渡すと `exports/dungeon_b1/` に出力され、別のマップの書き出しと上書きし合わない

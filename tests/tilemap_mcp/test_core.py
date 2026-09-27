@@ -349,6 +349,51 @@ def test_startup_reports_data_dir():
     assert f"data_dir={server.DATA_DIR}" in server.new_project(16)
 
 
+def test_named_outputs_stay_inside_data_dir():
+    """render/export_atlas `name` files results apart, and can never point outside the data folder."""
+    old = server._project
+    server._project = project(6, 4)
+    data = server.DATA_DIR.resolve()
+    try:
+        # without a name: the old fixed locations
+        server.render(scale=1)
+        assert (data / "render.png").is_file()
+        server.export_atlas()
+        assert (data / "atlas.png").is_file() and (data / "tiled_map.json").is_file()
+
+        # with a name: separate files, nothing overwritten
+        server.render(scale=2, name="room A")
+        server.render(scale=3, name="room_b")
+        from PIL import Image
+        assert Image.open(data / "renders" / "room A.png").size == (6 * 16 * 2, 4 * 16 * 2)
+        assert Image.open(data / "renders" / "room_b.png").size == (6 * 16 * 3, 4 * 16 * 3)
+        msg = server.export_atlas(name="dungeon_b1")
+        assert str(data / "exports" / "dungeon_b1") in msg, msg
+        for f in ("atlas.png", "atlas.json", "tiled_map.json"):
+            assert (data / "exports" / "dungeon_b1" / f).is_file(), f
+
+        # names cannot escape (checked before anything is written)
+        before = {p for p in data.parent.rglob("*")}
+        for bad in ("../x", "..\\x", "a/b", "/etc/passwd", "C:\\x", ".hidden", "", "x..y"):
+            for call in (lambda n=bad: server.render(scale=1, name=n), lambda n=bad: server.export_atlas(name=n)):
+                try:
+                    call()
+                except Exception as e:  # ToolError wrapping TilemapError
+                    assert "invalid" in str(e), (bad, e)
+                else:
+                    raise AssertionError(f"accepted name {bad!r}")
+        assert {p for p in data.parent.rglob("*")} == before, "a rejected name still wrote something"
+    finally:
+        server._project = old
+
+
+def test_instructions_tell_the_agent_where_files_go():
+    text = server.mcp.instructions if hasattr(server.mcp, "instructions") else None
+    if text is None:  # mcp 2.x keeps it on a settings object
+        text = getattr(getattr(server.mcp, "settings", None), "instructions", None)
+    assert text and str(server.DATA_DIR) in text and "cannot choose another location" in text, text
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
