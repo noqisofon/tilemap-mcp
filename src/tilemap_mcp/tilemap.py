@@ -31,6 +31,141 @@ def _parse_color(c: str) -> tuple[int, int, int, int]:
         raise TilemapError(f"bad color {c!r}: not hex") from None
 
 
+# ---------- sprite sheets (existing PNG tilesets with margin / spacing) ----------
+
+def sheet_grid(img: Image.Image, tile: int, margin: int = 0, spacing: int = 0) -> tuple[int, int]:
+    """(cols, rows) of whole tiles that fit in a sheet.
+
+    The sheet starts with `margin` px, then tiles of `tile` px separated by `spacing` px, so the
+    stride between tiles is tile + spacing (e.g. 12px tiles, margin 1, spacing 1 -> stride 13).
+    """
+    if tile < 1 or margin < 0 or spacing < 0:
+        raise TilemapError("tile must be >= 1 and margin/spacing >= 0")
+    cols = (img.width - margin + spacing) // (tile + spacing)
+    rows = (img.height - margin + spacing) // (tile + spacing)
+    return max(cols, 0), max(rows, 0)
+
+
+def sheet_cell_box(col: int, row: int, tile: int, margin: int = 0, spacing: int = 0) -> tuple[int, int, int, int]:
+    x0 = margin + col * (tile + spacing)
+    y0 = margin + row * (tile + spacing)
+    return x0, y0, x0 + tile, y0 + tile
+
+
+def _count_content_pixels(cell: Image.Image, background: Optional[str] = None) -> int:
+    """Pixels that are neither fully transparent nor (if given) the background colour."""
+    data = cell.convert("RGBA").tobytes()
+    bg = _parse_color(background)[:3] if background else None
+    count = 0
+    for i in range(0, len(data), 4):
+        if data[i + 3] == 0:
+            continue
+        if bg is not None and (data[i], data[i + 1], data[i + 2]) == bg:
+            continue
+        count += 1
+    return count
+
+
+def _check_range(name: str, rng: Optional[list[int]], limit: int) -> tuple[int, int]:
+    if rng is None:
+        return 0, limit
+    if len(rng) != 2:
+        raise TilemapError(f"{name} must be [start, end) with two integers")
+    start, end = rng
+    if not (0 <= start < end <= limit):
+        raise TilemapError(f"{name} {list(rng)} is outside 0..{limit} (the sheet has {limit})")
+    return start, end
+
+
+def inspect_sheet(
+    img: Image.Image,
+    tile: int,
+    margin: int = 0,
+    spacing: int = 0,
+    background: Optional[str] = None,
+    row_range: Optional[list[int]] = None,
+    col_range: Optional[list[int]] = None,
+    scale: Optional[int] = None,
+) -> tuple[Image.Image, dict]:
+    """Draw a sprite sheet enlarged with row/column numbers, empty cells dimmed.
+
+    Returns (image, info). `background` (e.g. "#000000") makes cells that hold only that colour
+    count as empty; without it only fully transparent cells are empty.
+    """
+    cols, rows = sheet_grid(img, tile, margin, spacing)
+    if cols == 0 or rows == 0:
+        raise TilemapError(f"no {tile}px tile fits in a {img.width}x{img.height} sheet")
+    r0, r1 = _check_range("row_range", row_range, rows)
+    c0, c1 = _check_range("col_range", col_range, cols)
+    ncols, nrows = c1 - c0, r1 - r0
+
+    pad, gap = 30, 2
+    if scale is None:
+        scale = 1
+        for s in range(8, 0, -1):
+            if pad + ncols * (tile * s + gap) <= 1800 and pad + nrows * (tile * s + gap) <= 1800:
+                scale = s
+                break
+    if scale < 1:
+        raise TilemapError("scale must be >= 1")
+    cell = tile * scale + gap
+    width, height = pad + ncols * cell, pad + nrows * cell
+    if width > 4000 or height > 4000:
+        raise TilemapError(
+            f"the view would be {width}x{height}px; narrow it with row_range / col_range or a smaller scale"
+        )
+
+    src = img.convert("RGBA")
+    canvas = Image.new("RGBA", (width, height), (30, 30, 34, 255))
+    draw = ImageDraw.Draw(canvas)
+    font = ImageFont.load_default()
+    step = max(1, -(-24 // cell))  # label every `step` columns/rows when cells are narrow
+    non_empty: dict[int, list[int]] = {}
+    counts: dict[str, int] = {}
+    for r in range(r0, r1):
+        for c in range(c0, c1):
+            tile_img = src.crop(sheet_cell_box(c, r, tile, margin, spacing))
+            n_px = _count_content_pixels(tile_img, background)
+            x, y = pad + (c - c0) * cell, pad + (r - r0) * cell
+            # checkerboard under the tile so transparency is visible
+            checker = Image.new("RGBA", tile_img.size, (70, 70, 74, 255))
+            for py in range(tile):
+                for px in range(tile):
+                    if (px + py) % 2:
+                        checker.putpixel((px, py), (96, 96, 100, 255))
+            checker.alpha_composite(tile_img)
+            big = checker.resize((tile * scale, tile * scale), Image.NEAREST)
+            if n_px == 0:
+                big = Image.blend(big, Image.new("RGBA", big.size, (30, 30, 34, 255)), 0.7)
+            else:
+                non_empty.setdefault(r, []).append(c)
+                counts[f"{r},{c}"] = n_px
+            canvas.paste(big, (x, y))
+    for c in range(c0, c1):
+        if (c - c0) % step == 0:
+            draw.text((pad + (c - c0) * cell + 2, 8), str(c), fill=(255, 220, 90, 255), font=font)
+    for r in range(r0, r1):
+        if (r - r0) % step == 0:
+            draw.text((2, pad + (r - r0) * cell + cell // 2 - 5), str(r), fill=(255, 220, 90, 255), font=font)
+
+    info: dict = {
+        "sheet_size": [img.width, img.height],
+        "tile_size": tile,
+        "margin": margin,
+        "spacing": spacing,
+        "grid": {"cols": cols, "rows": rows},
+        "shown": {"rows": [r0, r1], "cols": [c0, c1]},
+        "scale": scale,
+        "non_empty_cols_by_row": {str(r): cs for r, cs in sorted(non_empty.items())},
+        "non_empty_count": sum(len(v) for v in non_empty.values()),
+        "empty_count": ncols * nrows - sum(len(v) for v in non_empty.values()),
+        "empty_means": f"only '{background}' or transparent pixels" if background else "fully transparent",
+    }
+    if ncols * nrows <= 150:
+        info["content_pixels"] = counts
+    return canvas, info
+
+
 class Project:
     def __init__(self, tile_size: int = 16):
         self.tile_size = tile_size
@@ -166,24 +301,114 @@ class Project:
 
         self.define_tile(name, palette, rows, solid=solid, tags=tags, meta=meta)
 
+    def _sheet_cell(
+        self,
+        img: Image.Image,
+        col: int,
+        row: int,
+        tile: int,
+        margin: int,
+        spacing: int,
+        transparent_color: Optional[str],
+        fit: str,
+    ) -> Image.Image:
+        """Crop one sheet cell and bring it to this project's tile size."""
+        if fit not in ("exact", "pad", "scale"):
+            raise TilemapError("fit must be 'exact', 'pad' or 'scale'")
+        n = self.tile_size
+        cell = img.convert("RGBA").crop(sheet_cell_box(col, row, tile, margin, spacing))
+        if transparent_color:
+            key = _parse_color(transparent_color)[:3]
+            px = cell.load()
+            for y in range(tile):
+                for x in range(tile):
+                    r, g, b, _a = px[x, y]
+                    if (r, g, b) == key:
+                        px[x, y] = (0, 0, 0, 0)
+        if tile == n:
+            return cell
+        if fit == "exact":
+            raise TilemapError(
+                f"sheet tiles are {tile}px but this project uses {n}px. Either start a project with "
+                f"new_project(tile_size={tile}), or pass fit='pad' (centre the {tile}px art in a "
+                f"{n}px tile) or fit='scale' (nearest-neighbour resize; distorts unless {n} is a "
+                f"multiple of {tile})"
+            )
+        if fit == "pad":
+            if tile > n:
+                raise TilemapError(f"cannot pad a {tile}px tile into {n}px; use fit='scale'")
+            out = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+            out.paste(cell, ((n - tile) // 2, (n - tile) // 2))
+            return out
+        return cell.resize((n, n), Image.NEAREST)
+
+    def import_sheet_cell(
+        self,
+        name: str,
+        img: Image.Image,
+        col: int,
+        row: int,
+        tile: Optional[int] = None,
+        margin: int = 0,
+        spacing: int = 0,
+        transparent_color: Optional[str] = None,
+        fit: str = "exact",
+        solid: Optional[bool] = None,
+        tags: Optional[list[str]] = None,
+        meta: Optional[dict] = None,
+    ) -> None:
+        """Import the tile at (col, row) of a sprite sheet that has margin / spacing."""
+        tile = tile or self.tile_size
+        cols, rows = sheet_grid(img, tile, margin, spacing)
+        if not (0 <= col < cols and 0 <= row < rows):
+            raise TilemapError(f"cell (col={col}, row={row}) is outside the sheet grid {cols} cols x {rows} rows")
+        cell = self._sheet_cell(img, col, row, tile, margin, spacing, transparent_color, fit)
+        self.import_tile_from_image(name, cell, solid=solid, tags=tags, meta=meta)
+
     def slice_tileset(
         self,
         img: Image.Image,
         prefix: str = "tile",
         solid: Optional[bool] = None,
+        tile_size: Optional[int] = None,
+        margin: int = 0,
+        spacing: int = 0,
+        background: Optional[str] = None,
+        skip_empty: bool = False,
+        transparent_color: Optional[str] = None,
+        fit: str = "exact",
+        row_range: Optional[list[int]] = None,
+        col_range: Optional[list[int]] = None,
+        max_tiles: int = 1000,
     ) -> list[str]:
-        """Slice a sprite sheet into grid tiles and import them."""
-        n = self.tile_size
-        cols = img.width // n
-        rows = img.height // n
-        imported = []
-        for y in range(rows):
-            for x in range(cols):
-                sub = img.crop((x * n, y * n, (x + 1) * n, (y + 1) * n))
-                tname = f"{prefix}_{y}_{x}"
-                self.import_tile_from_image(tname, sub, solid=solid)
-                imported.append(tname)
-        return imported
+        """Slice a sprite sheet into tiles named '<prefix>_<row>_<col>' and import them.
+
+        tile_size is the sheet's tile size (default: this project's). margin / spacing describe
+        the sheet layout. skip_empty drops cells with no content (see `background`).
+        """
+        tile = tile_size or self.tile_size
+        cols, rows = sheet_grid(img, tile, margin, spacing)
+        r0, r1 = _check_range("row_range", row_range, rows)
+        c0, c1 = _check_range("col_range", col_range, cols)
+        cells = [(r, c) for r in range(r0, r1) for c in range(c0, c1)]
+        if skip_empty:
+            cells = [
+                (r, c) for r, c in cells
+                if _count_content_pixels(img.crop(sheet_cell_box(c, r, tile, margin, spacing)), background)
+            ]
+        if len(cells) > max_tiles:
+            raise TilemapError(
+                f"{len(cells)} tiles would be imported (max_tiles={max_tiles}); narrow with "
+                f"row_range / col_range, use skip_empty=True, or raise max_tiles"
+            )
+        # crop / fit every cell first, so size mismatches are reported before anything is imported
+        staged = [
+            (f"{prefix}_{r}_{c}", self._sheet_cell(img, c, r, tile, margin, spacing, transparent_color, fit))
+            for r, c in cells
+        ]
+        for tname, cell in staged:
+            self.import_tile_from_image(tname, cell, solid=solid)
+        return [tname for tname, _ in staged]
 
     def set_tile_properties(
         self,

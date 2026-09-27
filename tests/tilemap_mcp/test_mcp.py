@@ -1,6 +1,7 @@
 """Drive tilemap_mcp over real MCP stdio, like an agent would, and check the results."""
 import asyncio
 import base64
+import json
 import os
 import sys
 from pathlib import Path
@@ -139,6 +140,31 @@ async def main():
             assert not is_err(r), r
             r = await call(s, "list_projects")
             print("list_projects:", r.content[0].text)
+
+            # Test 8: existing sprite sheet (12px tiles, 1px margin, 1px spacing, black background)
+            from PIL import Image as _PIL
+
+            sheet = _PIL.new("RGBA", (1 + 5 * 13, 1 + 3 * 13), (0, 0, 0, 255))
+            for y in range(3, 9):
+                for x in range(3, 9):
+                    sheet.putpixel((1 + 3 * 13 + x, 1 + 2 * 13 + y), (0, 0, 255, 255))  # cell row 2, col 3
+            sheet_path = DATA / "sheet_12px.png"
+            sheet.save(sheet_path)
+            r = await call(s, "inspect_tileset", file_path=str(sheet_path), tile_size=12, margin=1, spacing=1, background="#000000")
+            assert not is_err(r), r
+            assert any(c.type == "image" for c in r.content)
+            info = json.loads(next(c for c in r.content if c.type == "text").text)
+            assert info["non_empty_cols_by_row"] == {"2": [3]}, info
+            print("inspect_tileset:", info["grid"], info["non_empty_cols_by_row"])
+            bad = await call(s, "import_tile_from_sheet", name="potion", file_path=str(sheet_path), row=2, col=3, tile_size=12, margin=1, spacing=1)
+            assert is_err(bad) and "new_project(tile_size=12)" in bad.content[0].text, bad  # 16px project: explained, not resized
+            await call(s, "new_project", tile_size=12)
+            r = await call(s, "import_tile_from_sheet", name="potion", file_path=str(sheet_path), row=2, col=3, tile_size=12, margin=1, spacing=1, transparent_color="#000000")
+            assert not is_err(r), r
+            r = await call(s, "slice_tileset", file_path=str(sheet_path), prefix="u", tile_size=12, margin=1, spacing=1, background="#000000", skip_empty=True)
+            assert not is_err(r), r
+            assert "u_2_3" in "".join(c.text for c in r.content), r
+            print("import_tile_from_sheet / slice_tileset OK")
     print("files:", sorted(p.name for p in DATA.iterdir()))
 
 

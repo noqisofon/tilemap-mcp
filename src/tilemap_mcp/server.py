@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import functools
 import io
+import json
 import os
 import re
 from pathlib import Path
@@ -23,9 +24,9 @@ except (ModuleNotFoundError, ImportError):
     from mcp.server.mcpserver.exceptions import ToolError
 
 try:
-    from tilemap_mcp.tilemap import Project, TilemapError
+    from tilemap_mcp.tilemap import Project, TilemapError, inspect_sheet
 except ImportError:
-    from tilemap import Project, TilemapError
+    from tilemap import Project, TilemapError, inspect_sheet
 
 DATA_DIR = Path(os.environ.get("TILEMAP_DIR", "tilemap_data")).resolve()
 PROJECT_FILE = DATA_DIR / "project.json"
@@ -35,7 +36,8 @@ mcp = FastMCP(
     "tilemap",
     instructions=(
         "Build pixel-art tile maps and sprites by name and coordinate. Workflow: "
-        "new_project -> define_tile (text pixel art) / clone_tile / import_tile_from_file -> "
+        "new_project -> define_tile (text pixel art) / clone_tile / import_tile_from_file / "
+        "(existing sprite sheet: inspect_tileset to find cells, then import_tile_from_sheet) -> "
         "create_map -> set_map_from_ascii / place / fill / border / carve_corridor -> "
         "render (optionally with view_rect camera window or fog_of_war) -> export_atlas. "
         "Coordinates are 0-based (x=column, y=row) from the top-left. "
@@ -48,6 +50,18 @@ _project: Project = Project.load(PROJECT_FILE) if PROJECT_FILE.exists() else Pro
 
 def _save() -> None:
     _project.save(PROJECT_FILE)
+
+
+def _open_image(file_path: str) -> PILImage.Image:
+    p = Path(file_path).expanduser().resolve()
+    if not p.is_file():
+        raise TilemapError(f"file not found: {file_path} (resolved to {p})")
+    try:
+        img = PILImage.open(p)
+        img.load()
+    except Exception as e:  # unreadable / not an image
+        raise TilemapError(f"cannot read {p.name} as an image: {e}") from None
+    return img
 
 
 # letters (incl. Japanese), digits, _ - . and spaces; no path separators, no leading dot, no ".."
@@ -185,25 +199,109 @@ def import_tile_from_file(
     solid: Optional[bool] = None,
     tags: Optional[list[str]] = None,
 ) -> str:
-    """Import an image file (PNG/JPG) as a tile, auto-extracting colors and text pixels."""
-    p = Path(file_path).resolve()
-    if not p.exists():
-        raise TilemapError(f"file not found: {file_path}")
-    img = PILImage.open(p)
+    """Import a whole image file (PNG/JPG) as one tile, auto-extracting colors and text pixels.
+    For a tile inside a sprite sheet use import_tile_from_sheet instead."""
+    img = _open_image(file_path)
     _project.import_tile_from_image(name, img, solid=solid, tags=tags)
     _save()
-    return f"imported {name!r} from {p.name}"
+    return f"imported {name!r} from {Path(file_path).name}"
 
 
 @mcp.tool()
 @_guard
-def slice_tileset(file_path: str, prefix: str = "tile", solid: Optional[bool] = None) -> list[str]:
-    """Slice an entire sprite sheet into tile_size x tile_size tiles and import them."""
-    p = Path(file_path).resolve()
-    if not p.exists():
-        raise TilemapError(f"file not found: {file_path}")
-    img = PILImage.open(p)
-    imported = _project.slice_tileset(img, prefix=prefix, solid=solid)
+def inspect_tileset(
+    file_path: str,
+    tile_size: Optional[int] = None,
+    margin: int = 0,
+    spacing: int = 0,
+    background: Optional[str] = None,
+    row_range: Optional[list[int]] = None,
+    col_range: Optional[list[int]] = None,
+    scale: Optional[int] = None,
+) -> list:
+    """Look at an existing sprite sheet: returns an enlarged image with row and column numbers
+    (empty cells dimmed) plus a list of which cells have content. Use it to find which
+    (row, col) holds the tile you want, then import_tile_from_sheet / slice_tileset.
+
+    tile_size: the sheet's tile size in px (default: this project's tile size).
+    margin: px before the first tile; spacing: px between tiles (e.g. 12px tiles with a 1px
+      border all round: tile_size=12, margin=1, spacing=1).
+    background: colour that counts as empty, e.g. "#000000" for sheets with an opaque black
+      background (without it only fully transparent cells are empty).
+    row_range / col_range: [start, end) to look at a part of a big sheet.
+    """
+    img = _open_image(file_path)
+    canvas, info = inspect_sheet(
+        img, tile_size or _project.tile_size, margin, spacing, background, row_range, col_range, scale
+    )
+    buf = io.BytesIO()
+    canvas.save(buf, "PNG")
+    return [Image(data=buf.getvalue(), format="png"), json.dumps(info, ensure_ascii=False)]
+
+
+@mcp.tool()
+@_guard
+def import_tile_from_sheet(
+    name: str,
+    file_path: str,
+    row: int,
+    col: int,
+    tile_size: Optional[int] = None,
+    margin: int = 0,
+    spacing: int = 0,
+    transparent_color: Optional[str] = None,
+    fit: str = "exact",
+    solid: Optional[bool] = None,
+    tags: Optional[list[str]] = None,
+) -> str:
+    """Import ONE tile from a sprite sheet: the cell at (row, col), counted from 0 at the top-left
+    (see inspect_tileset for the numbers).
+
+    tile_size / margin / spacing describe the sheet layout (see inspect_tileset).
+    transparent_color: colour to turn transparent, e.g. "#000000" for a black background, so the
+      sprite can sit on a floor tile.
+    fit: what to do when the sheet's tile size differs from this project's — "exact" (default:
+      refuse, and say how to fix it), "pad" (centre a smaller tile in the project tile) or
+      "scale" (nearest-neighbour resize).
+    """
+    img = _open_image(file_path)
+    _project.import_sheet_cell(
+        name, img, col, row, tile=tile_size, margin=margin, spacing=spacing,
+        transparent_color=transparent_color, fit=fit, solid=solid, tags=tags,
+    )
+    _save()
+    return f"imported {name!r} from {Path(file_path).name} (row {row}, col {col})"
+
+
+@mcp.tool()
+@_guard
+def slice_tileset(
+    file_path: str,
+    prefix: str = "tile",
+    solid: Optional[bool] = None,
+    tile_size: Optional[int] = None,
+    margin: int = 0,
+    spacing: int = 0,
+    background: Optional[str] = None,
+    skip_empty: bool = False,
+    transparent_color: Optional[str] = None,
+    fit: str = "exact",
+    row_range: Optional[list[int]] = None,
+    col_range: Optional[list[int]] = None,
+    max_tiles: int = 1000,
+) -> list[str]:
+    """Import many tiles from a sprite sheet at once, named '<prefix>_<row>_<col>'.
+
+    tile_size / margin / spacing / background / fit / transparent_color: see inspect_tileset and
+    import_tile_from_sheet. skip_empty drops empty cells. Use row_range / col_range ([start, end))
+    to take just a region; a whole big sheet is refused above max_tiles.
+    """
+    img = _open_image(file_path)
+    imported = _project.slice_tileset(
+        img, prefix=prefix, solid=solid, tile_size=tile_size, margin=margin, spacing=spacing,
+        background=background, skip_empty=skip_empty, transparent_color=transparent_color, fit=fit,
+        row_range=row_range, col_range=col_range, max_tiles=max_tiles,
+    )
     _save()
     return imported
 

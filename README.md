@@ -24,7 +24,7 @@ pip install -e .
 ```bash
 # 動作検証
 python tests/tilemap_mcp/test_core.py  # コアロジック・回帰テスト (8件)
-python tests/tilemap_mcp/test_mcp.py   # MCP stdio 経由で全27ツールの統合テスト
+python tests/tilemap_mcp/test_mcp.py   # MCP stdio 経由で全29ツールの統合テスト
 python -m tilemap_mcp.demo             # demo_out/ に部屋とスプライトを描画
 ```
 
@@ -71,8 +71,13 @@ claude mcp add tilemap -e TILEMAP_DIR=./tilemap_data -e PYTHONPATH=src -- python
 ### 2. タイルの定義・編集・変形
 - `define_tile(name, palette, rows, solid=None, tags=None)`: 1文字1ピクセルのテキストアートでタイル定義（`.` は透明）
 - `clone_tile(src_name, new_name, flip_h=False, flip_v=False, rotate=0)`: 既存タイルの左右反転・上下反転・90/180/270度回転（キャラの向きや壁の角、階段の向きに便利）
-- `import_tile_from_file(name, file_path, solid=None, tags=None)`: 既存のPNG画像からパレット・文字アートを自動抽出して取り込み
-- `slice_tileset(file_path, prefix="tile", solid=None)`: スプライトシート画像をタイルサイズごとに切り出して一括登録
+- `import_tile_from_file(name, file_path, solid=None, tags=None)`: 1枚のPNG画像を丸ごと1タイルとして取り込み（パレット・文字アートを自動抽出）
+- `inspect_tileset(file_path, tile_size=None, margin=0, spacing=0, background=None, row_range=None, col_range=None, scale=None)`: **既存のスプライトシートを見る。** 行・列番号つきの拡大画像と、中身のあるマスの一覧を返す（空マスは暗く表示）。「どのマスに何の絵があるか」を、画素を数えずに画像で判断できる。`background="#000000"` で黒背景を空扱い、`row_range` / `col_range` で大きなシートの一部だけを表示
+- `import_tile_from_sheet(name, file_path, row, col, tile_size=None, margin=0, spacing=0, transparent_color=None, fit="exact", solid=None, tags=None)`: シートの (row, col) のマス1つを取り込む。`transparent_color="#000000"` で背景を透明にして、床の上に重ねられるようにする
+- `slice_tileset(file_path, prefix="tile", solid=None, tile_size=None, margin=0, spacing=0, background=None, skip_empty=False, transparent_color=None, fit="exact", row_range=None, col_range=None, max_tiles=1000)`: シートを `<prefix>_<row>_<col>` の名前で一括登録。余白（margin）・間隔（spacing）つきのシートに対応
+
+  シートのタイルサイズとプロジェクトの `tile_size` が違う場合、`fit="exact"`（既定）は黙って拡縮せずにエラーで対処法を返す。`fit="pad"` は小さいタイルを中央に置き、`fit="scale"` は最近傍で拡縮する。通常は `new_project(tile_size=シートのタイルサイズ)` で揃えるのがおすすめ。
+  例（12px タイル・外周1px・間隔1px のシート）: `tile_size=12, margin=1, spacing=1`
 - `set_tile_properties(name, solid=None, tags=None, meta=None)`: タイルに当たり判定（壁など）やタグ・カスタム情報を設定
 - `get_tile_properties(name)`: タイルのプロパティ取得
 - `preview_tile(name, scale=16)`: 市松模様背景でタイルを拡大プレビュー

@@ -161,6 +161,157 @@ def test_tiled_export_rebuilds_same_picture():
     assert ImageChops.difference(canvas, p.render(scale=1)).getbbox() is None
 
 
+# ---------- sprite sheets: Urizen-like layout (12px tiles, 1px margin, 1px spacing, black background) ----------
+
+def make_sheet(cols=5, rows=3, tile=12, margin=1, spacing=1, filled=None, trailing_margin=True):
+    """Opaque black sheet. Each cell in `filled` gets a 6x6 block of its colour at cell offset (3, 3)."""
+    from PIL import Image
+
+    filled = filled or {}
+    extra = margin if trailing_margin else 0
+    w = margin + cols * (tile + spacing) - spacing + extra
+    h = margin + rows * (tile + spacing) - spacing + extra
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 255))
+    for (r, c), colour in filled.items():
+        x0, y0 = margin + c * (tile + spacing), margin + r * (tile + spacing)
+        for y in range(3, 9):
+            for x in range(3, 9):
+                img.putpixel((x0 + x, y0 + y), colour + (255,))
+    return img
+
+
+URIZEN_LIKE = {(2, 0): (255, 0, 0), (2, 2): (0, 255, 0), (2, 3): (0, 0, 255), (0, 4): (255, 255, 0)}
+
+
+def test_sheet_grid_with_margin_and_spacing():
+    from tilemap_mcp.tilemap import sheet_cell_box, sheet_grid
+
+    assert sheet_grid(make_sheet(cols=5, rows=3), 12, 1, 1) == (5, 3)
+    assert sheet_grid(make_sheet(cols=5, rows=3, trailing_margin=False), 12, 1, 1) == (5, 3)
+    assert sheet_grid(make_sheet(cols=62, rows=41), 12, 1, 1) == (62, 41)
+    # the exact arithmetic of the PowerShell probe: startX = 1 + col * 13
+    assert sheet_cell_box(3, 2, 12, 1, 1) == (1 + 3 * 13, 1 + 2 * 13, 1 + 3 * 13 + 12, 1 + 2 * 13 + 12)
+
+
+def test_inspect_sheet_finds_content():
+    from tilemap_mcp.tilemap import inspect_sheet
+
+    sheet = make_sheet(filled=URIZEN_LIKE)
+    img, info = inspect_sheet(sheet, 12, 1, 1, background="#000000")
+    assert info["grid"] == {"cols": 5, "rows": 3}
+    assert info["non_empty_cols_by_row"] == {"0": [4], "2": [0, 2, 3]}
+    assert info["non_empty_count"] == 4 and info["empty_count"] == 11
+    assert info["content_pixels"]["2,3"] == 36
+    assert img.width > 100 and img.height > 60
+    # without `background`, opaque black counts as content -> everything is "non-empty"
+    _, info2 = inspect_sheet(sheet, 12, 1, 1)
+    assert info2["non_empty_count"] == 15
+    # part of a sheet
+    _, info3 = inspect_sheet(sheet, 12, 1, 1, background="#000000", row_range=[2, 3], col_range=[0, 3])
+    assert info3["non_empty_cols_by_row"] == {"2": [0, 2]}
+    for bad in ([3, 4], [2, 2], [0, 9], [1]):
+        try:
+            inspect_sheet(sheet, 12, 1, 1, row_range=bad)
+        except TilemapError:
+            continue
+        raise AssertionError(f"accepted row_range {bad}")
+
+
+def test_import_sheet_cell_exact_size():
+    p = Project(12)
+    sheet = make_sheet(filled=URIZEN_LIKE)
+    p.import_sheet_cell("blue", sheet, col=3, row=2, margin=1, spacing=1, transparent_color="#000000")
+    img = p.tile_image("blue")
+    assert img.size == (12, 12)
+    assert img.getpixel((5, 5)) == (0, 0, 255, 255)          # the right cell was cut out
+    assert img.getpixel((0, 0))[3] == 0                      # black background became transparent
+    assert img.getpixel((2, 2))[3] == 0 and img.getpixel((3, 3))[3] == 255
+    # without transparent_color the black stays opaque
+    p.import_sheet_cell("blue_bg", sheet, col=3, row=2, margin=1, spacing=1)
+    assert p.tile_image("blue_bg").getpixel((0, 0)) == (0, 0, 0, 255)
+    # every other cell is really different (margin / spacing are honoured)
+    p.import_sheet_cell("red", sheet, col=0, row=2, margin=1, spacing=1)
+    p.import_sheet_cell("green", sheet, col=2, row=2, margin=1, spacing=1)
+    assert p.tile_image("red").getpixel((5, 5)) == (255, 0, 0, 255)
+    assert p.tile_image("green").getpixel((5, 5)) == (0, 255, 0, 255)
+    p.import_sheet_cell("empty", sheet, col=1, row=2, margin=1, spacing=1, transparent_color="#000000")
+    assert p.tile_image("empty").getchannel("A").getextrema() == (0, 0)  # fully transparent
+
+
+def test_import_sheet_cell_size_mismatch():
+    p = Project(16)
+    sheet = make_sheet(filled=URIZEN_LIKE)
+    try:
+        p.import_sheet_cell("x", sheet, col=3, row=2, tile=12, margin=1, spacing=1)
+    except TilemapError as e:
+        assert "new_project(tile_size=12)" in str(e), e
+    else:
+        raise AssertionError("silently resized a 12px tile into a 16px project")
+    assert "x" not in p.tiles
+    p.import_sheet_cell("padded", sheet, col=3, row=2, tile=12, margin=1, spacing=1,
+                        transparent_color="#000000", fit="pad")
+    assert p.tile_image("padded").size == (16, 16)
+    assert p.tile_image("padded").getpixel((3 + 2, 3 + 2)) == (0, 0, 255, 255)  # centred: +2 px
+    p.import_sheet_cell("scaled", sheet, col=3, row=2, tile=12, margin=1, spacing=1, fit="scale")
+    assert p.tile_image("scaled").size == (16, 16)
+    try:
+        p.import_sheet_cell("y", sheet, col=1, row=1, tile=12, margin=1, spacing=1, fit="bogus")
+    except TilemapError:
+        pass
+    else:
+        raise AssertionError("accepted fit='bogus'")
+    for col, row in ((5, 0), (0, 3), (-1, 0)):
+        try:
+            p.import_sheet_cell("z", sheet, col=col, row=row, tile=12, margin=1, spacing=1, fit="pad")
+        except TilemapError as e:
+            assert "outside the sheet grid" in str(e)
+        else:
+            raise AssertionError(f"accepted cell {(col, row)}")
+
+
+def test_slice_tileset_with_margin_skip_empty_and_limits():
+    p = Project(12)
+    sheet = make_sheet(filled=URIZEN_LIKE)
+    names = p.slice_tileset(sheet, prefix="u", tile_size=12, margin=1, spacing=1,
+                            background="#000000", skip_empty=True, transparent_color="#000000")
+    assert names == ["u_0_4", "u_2_0", "u_2_2", "u_2_3"], names
+    assert p.tile_image("u_2_3").getpixel((5, 5)) == (0, 0, 255, 255)
+    # only a region
+    q = Project(12)
+    assert q.slice_tileset(sheet, prefix="r", margin=1, spacing=1, row_range=[2, 3], col_range=[1, 3]) == ["r_2_1", "r_2_2"]
+    # too many tiles are refused before anything is imported
+    q2 = Project(12)
+    try:
+        q2.slice_tileset(sheet, margin=1, spacing=1, max_tiles=5)
+    except TilemapError as e:
+        assert "max_tiles" in str(e)
+    else:
+        raise AssertionError("ignored max_tiles")
+    assert not q2.tiles
+    # mismatched size is refused as a whole, nothing imported
+    q3 = Project(16)
+    try:
+        q3.slice_tileset(sheet, tile_size=12, margin=1, spacing=1)
+    except TilemapError:
+        pass
+    else:
+        raise AssertionError("mismatch accepted")
+    assert not q3.tiles
+
+
+def test_slice_tileset_old_behaviour_unchanged():
+    """Plain sheets (no margin/spacing, project tile size) still work exactly as before."""
+    from PIL import Image
+
+    sheet = Image.new("RGBA", (32, 16), (0, 0, 0, 0))
+    sheet.putpixel((3, 3), (255, 0, 0, 255))
+    sheet.putpixel((16 + 4, 4), (0, 255, 0, 255))
+    p = Project(16)
+    assert p.slice_tileset(sheet, prefix="s") == ["s_0_0", "s_0_1"]
+    assert p.tile_image("s_0_0").getpixel((3, 3)) == (255, 0, 0, 255)
+    assert p.tile_image("s_0_1").getpixel((4, 4)) == (0, 255, 0, 255)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
